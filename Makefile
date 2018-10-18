@@ -24,12 +24,13 @@ build: ## Build eksctl
 test: generate ## Run unit tests
 	@git diff --exit-code pkg/nodebootstrap/assets.go > /dev/null || (git --no-pager diff; exit 1)
 	@git diff --exit-code ./pkg/eks/mocks > /dev/null || (git --no-pager diff; exit 1)
-	@go test -v -covermode=count -coverprofile=coverage.out ./pkg/... ./cmd/...
+	@CGO_ENABLED=0 go test -v -covermode=count -coverprofile=coverage.out ./pkg/... ./cmd/...
 	@test -z $(COVERALLS_TOKEN) || $(GOPATH)/bin/goveralls -coverprofile=coverage.out -service=circle-ci
 
+LINTER ?= gometalinter ./...
 .PHONY: lint
-lint: ## Run GoMetalinter over the codebase
-	@$(GOPATH)/bin/gometalinter ./...
+lint: ## Run linter over the codebase
+	@$(GOPATH)/bin/$(LINTER)
 
 .PHONY: ci
 ci: test lint ## Target for CI system to invoke to run tests and linting
@@ -40,7 +41,7 @@ integration-test-dev: build ## Run the integration tests without cluster teardow
 	@./eksctl utils write-kubeconfig \
 		--auto-kubeconfig \
 		--name=$(TEST_CLUSTER)
-	@go test -tags integration -v -timeout 21m ./tests/integration/... \
+	@go test -tags integration -v -timeout 21m ./integration/... \
 		-args \
 		-eksctl.cluster=$(TEST_CLUSTER) \
 		-eksctl.create=false \
@@ -55,7 +56,7 @@ delete-integration-test-dev-cluster: build ## Delete the test cluster for use wh
 
 .PHONY: integration-test
 integration-test: build ## Run the integration tests (with cluster creation and cleanup)
-	@go test -tags integration -v -timeout 21m ./tests/integration/...
+	@go test -tags integration -v -timeout 60m ./integration/...
 
 ##@ Code Generation
 

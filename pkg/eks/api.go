@@ -29,7 +29,7 @@ import (
 	"github.com/kubicorn/kubicorn/pkg/logger"
 )
 
-// ClusterProvider stores infromation about the cluster
+// ClusterProvider stores information about the cluster
 type ClusterProvider struct {
 	// core fields used for config and AWS APIs
 	Spec     *api.ClusterConfig
@@ -60,9 +60,8 @@ func (p ProviderServices) STS() stsiface.STSAPI { return p.sts }
 
 // ProviderStatus stores information about the used IAM role and the resulting session
 type ProviderStatus struct {
-	iamRoleARN        string
-	sessionCreds      *credentials.Credentials
-	availabilityZones []string
+	iamRoleARN   string
+	sessionCreds *credentials.Credentials
 }
 
 // New creates a new setup of the used AWS APIs
@@ -70,13 +69,6 @@ func New(clusterConfig *api.ClusterConfig) *ClusterProvider {
 	// Create a new session and save credentials for possible
 	// later re-use if overriding sessions due to custom URL
 	s := newSession(clusterConfig, "", nil)
-
-	// If there was no region supplied and we have a region
-	// from the config files then update the cluster config
-	if clusterConfig.Region == "" && *s.Config.Region != "" {
-		logger.Debug("using region %s from AWS shared configuraion or environment variables", *s.Config.Region)
-		clusterConfig.Region = *s.Config.Region
-	}
 
 	provider := &ProviderServices{
 		cfn: cloudformation.New(s),
@@ -207,9 +199,11 @@ func newSession(clusterConfig *api.ClusterConfig, endpoint string, credentials *
 	// don't want yet
 	// https://github.com/kubernetes/kops/blob/master/upup/pkg/fi/cloudup/awsup/aws_cloud.go#L179
 	config := aws.NewConfig()
+
 	if clusterConfig.Region != "" {
 		config = config.WithRegion(clusterConfig.Region)
 	}
+
 	config = config.WithCredentialsChainVerboseErrors(true)
 	if logger.Level >= api.AWSDebugLevel {
 		config = config.WithLogLevel(aws.LogDebug |
@@ -240,7 +234,22 @@ func newSession(clusterConfig *api.ClusterConfig, endpoint string, credentials *
 		opts.Config.Credentials = credentials
 	}
 
-	return session.Must(session.NewSessionWithOptions(opts))
+	s := session.Must(session.NewSessionWithOptions(opts))
+
+	if clusterConfig.Region == "" {
+		if *s.Config.Region != "" {
+			// set cluster config region, based on session config
+			clusterConfig.Region = *s.Config.Region
+		} else {
+			// if session config doesn't have region set, make recursive call forcing default region
+			logger.Debug("no region specified in flags or config, setting to %s", api.DefaultEKSRegion)
+			clusterConfig.Region = api.DefaultEKSRegion
+			return newSession(clusterConfig, endpoint, credentials)
+		}
+	}
+
+	logger.Info("using region %s", clusterConfig.Region)
+	return s
 }
 
 // NewStackManager returns a new stack manager
